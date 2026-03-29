@@ -1,0 +1,367 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Theme variables ──────────────────────────────── */
+:root,
+[data-theme='light'] {
+  --bg:           #eceef8;
+  --surface:      rgba(255, 255, 255, 0.72);
+  --surface-hov:  rgba(255, 255, 255, 0.92);
+  --border:       rgba(0, 0, 0, 0.06);
+  --border-focus: rgba(90, 68, 196, 0.5);
+  --txt:          #16162a;
+  --muted:        rgba(22, 22, 42, 0.44);
+  --accent:       #5a44c4;
+  --accent2:      #0d9d98;
+  --accent-glow:  rgba(90, 68, 196, 0.18);
+  --accent-subtle:rgba(90, 68, 196, 0.07);
+  --input-bg:     rgba(255, 255, 255, 0.82);
+  --shadow:       0 2px 16px rgba(90, 68, 196, 0.08), 0 1px 3px rgba(0,0,0,0.04);
+  --shadow-lg:    0 8px 40px rgba(90, 68, 196, 0.14), 0 2px 8px rgba(0,0,0,0.06);
+  --shadow-btn:   0 2px 12px rgba(90, 68, 196, 0.28);
+  --orb-a:        #bfb2ed;
+  --orb-b:        #a2cce6;
+  --orb-opacity:  0.3;
+  --radius-card:  16px;
+  --radius-btn:   10px;
+  --radius-input: 12px;
+  --noise:        url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.035'/%3E%3C/svg%3E");
+}
+
+[data-theme='dark'] {
+  --bg:           #09090f;
+  --surface:      rgba(255, 255, 255, 0.04);
+  --surface-hov:  rgba(255, 255, 255, 0.075);
+  --border:       rgba(255, 255, 255, 0.075);
+  --border-focus: rgba(130, 112, 220, 0.6);
+  --txt:          #eaeaf4;
+  --muted:        rgba(234, 234, 244, 0.35);
+  --accent:       #8270dc;
+  --accent2:      #2dcfba;
+  --accent-glow:  rgba(130, 112, 220, 0.2);
+  --accent-subtle:rgba(130, 112, 220, 0.08);
+  --input-bg:     rgba(0, 0, 0, 0.32);
+  --shadow:       0 2px 16px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0,0,0,0.3);
+  --shadow-lg:    0 8px 48px rgba(0, 0, 0, 0.65), 0 2px 8px rgba(0,0,0,0.4);
+  --shadow-btn:   0 2px 16px rgba(130, 112, 220, 0.32);
+  --orb-a:        #2e1e6e;
+  --orb-b:        #122e4a;
+  --orb-opacity:  0.18;
+  --radius-card:  16px;
+  --radius-btn:   10px;
+  --radius-input: 12px;
+  --noise:        url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.055'/%3E%3C/svg%3E");
+}
+
+/* ── Base ─────────────────────────────────────────── */
+html, body { height: 100%; }
+body {
+  font-family: 'DM Sans', sans-serif;
+  background-color: var(--bg);
+  background-image: var(--noise);
+  color: var(--txt);
+  transition: background-color 0.35s ease, color 0.35s ease;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Component classes ────────────────────────────── */
+@layer components {
+
+  /* ── Glass card ──────────────────────────────────── */
+  .card {
+    @apply p-5;
+    border-radius: var(--radius-card);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(20px) saturate(1.4);
+    -webkit-backdrop-filter: blur(20px) saturate(1.4);
+    transition: box-shadow 0.25s ease, border-color 0.25s ease, transform 0.2s ease;
+  }
+  .card:hover {
+    box-shadow: var(--shadow-lg);
+    border-color: color-mix(in srgb, var(--accent) 18%, var(--border));
+  }
+
+  /* ── Section label ───────────────────────────────── */
+  .card-title {
+    @apply font-mono uppercase flex items-center gap-2 mb-3.5;
+    font-size: 0.66rem;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    font-weight: 500;
+  }
+  .card-title::before {
+    content: '';
+    display: inline-block;
+    width: 2.5px;
+    height: 9px;
+    border-radius: 2px;
+    background: linear-gradient(to bottom, var(--accent), var(--accent2));
+    opacity: 0.85;
+    flex-shrink: 0;
+  }
+
+  /* ── Method button ───────────────────────────────── */
+  .method-btn {
+    @apply text-left cursor-pointer relative overflow-hidden;
+    padding: 10px 12px;
+    border-radius: 11px;
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    color: var(--txt);
+    transition: border-color 0.18s ease, background 0.18s ease,
+                transform 0.18s ease, box-shadow 0.18s ease;
+  }
+  .method-btn::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+  .method-btn:hover {
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+    background: var(--surface-hov);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px var(--accent-glow);
+  }
+  .method-btn.selected {
+    border-color: var(--accent);
+    background: var(--accent-subtle);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent),
+                0 4px 18px var(--accent-glow);
+  }
+  /* top accent line on selected */
+  .method-btn.selected::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    border-radius: 11px 11px 0 0;
+    background: linear-gradient(to right, var(--accent), var(--accent2));
+    opacity: 1;
+  }
+  .method-btn::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    border-radius: 11px 11px 0 0;
+    background: linear-gradient(to right, var(--accent), var(--accent2));
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+  .method-btn:hover::before { opacity: 0.5; }
+
+  .m-name {
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin-bottom: 2px;
+    line-height: 1.3;
+  }
+  .m-desc {
+    font-family: monospace;
+    font-size: 0.66rem;
+    color: var(--muted);
+    line-height: 1.3;
+  }
+
+  /* ── Option pill ─────────────────────────────────── */
+  .opt-pill {
+    @apply flex items-center gap-2 cursor-pointer select-none;
+    padding: 7px 11px;
+    border-radius: 9px;
+    font-size: 0.79rem;
+    font-weight: 500;
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    transition: border-color 0.15s ease, color 0.15s ease,
+                background 0.15s ease, box-shadow 0.15s ease;
+  }
+  .opt-pill:hover {
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+    color: var(--txt);
+  }
+  .opt-pill.on {
+    border-color: var(--accent);
+    color: var(--txt);
+    background: var(--accent-subtle);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 15%, transparent);
+  }
+
+  /* Checkbox */
+  .chk {
+    @apply relative flex-shrink-0;
+    width: 14px;
+    height: 14px;
+    border-radius: 4px;
+    border: 1.5px solid color-mix(in srgb, var(--muted) 60%, transparent);
+    transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+  }
+  .opt-pill.on .chk {
+    background: var(--accent);
+    border-color: var(--accent);
+    box-shadow: 0 0 6px var(--accent-glow);
+  }
+  .opt-pill.on .chk::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 4px;
+    width: 4px;
+    height: 7px;
+    border: 1.5px solid #fff;
+    border-top: none;
+    border-left: none;
+    transform: rotate(45deg);
+  }
+
+  /* ── Code textarea ───────────────────────────────── */
+  .code-area {
+    @apply w-full font-mono outline-none;
+    padding: 12px 14px;
+    border-radius: var(--radius-input);
+    font-size: 0.79rem;
+    line-height: 1.65;
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    color: var(--txt);
+    backdrop-filter: blur(8px);
+    transition: border-color 0.18s ease, box-shadow 0.18s ease;
+    resize: none;
+  }
+  .code-area:focus {
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 3px var(--accent-glow),
+                0 1px 4px rgba(0,0,0,0.06);
+  }
+  .code-area::placeholder {
+    color: var(--muted);
+    opacity: 0.7;
+  }
+
+  /* ── Editor label row ────────────────────────────── */
+  .editor-label {
+    @apply flex justify-between items-center font-mono uppercase;
+    font-size: 0.64rem;
+    letter-spacing: 0.09em;
+    color: var(--muted);
+    font-weight: 500;
+  }
+
+  /* ── Buttons ─────────────────────────────────────── */
+  .btn {
+    @apply font-sans font-medium cursor-pointer select-none border;
+    padding: 7px 18px;
+    border-radius: var(--radius-btn);
+    font-size: 0.83rem;
+    border-color: transparent;
+    transition: opacity 0.15s ease, transform 0.15s ease,
+                box-shadow 0.15s ease, background 0.15s ease,
+                border-color 0.15s ease;
+    letter-spacing: 0.01em;
+  }
+  .btn:active { transform: scale(0.965) !important; }
+
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 80%, var(--accent2)) 100%);
+    border-color: transparent;
+    color: #fff;
+    box-shadow: var(--shadow-btn);
+    font-weight: 600;
+  }
+  .btn-primary:hover {
+    opacity: 0.9;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 22px var(--accent-glow);
+  }
+
+  .btn-secondary {
+    background: var(--surface);
+    border-color: var(--border);
+    color: var(--txt);
+    backdrop-filter: blur(10px);
+  }
+  .btn-secondary:hover {
+    background: var(--surface-hov);
+    border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+    box-shadow: 0 2px 10px var(--accent-glow);
+    transform: translateY(-1px);
+  }
+
+  .btn-ghost {
+    background: transparent;
+    border-color: var(--border);
+    color: var(--muted);
+    font-weight: 500;
+  }
+  .btn-ghost:hover {
+    color: var(--txt);
+    background: var(--surface);
+    border-color: color-mix(in srgb, var(--txt) 15%, transparent);
+  }
+
+  /* ── Notice bar ──────────────────────────────────── */
+  .notice {
+    padding: 10px 14px;
+    border-radius: 11px;
+    font-size: 0.76rem;
+    line-height: 1.55;
+    background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+    border: 1px solid color-mix(in srgb, var(--accent) 16%, transparent);
+    color: var(--muted);
+  }
+
+  /* ── Layer tag ───────────────────────────────────── */
+  .layer-tag {
+    @apply font-mono;
+    padding: 3px 11px;
+    border-radius: 20px;
+    font-size: 0.69rem;
+    letter-spacing: 0.03em;
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+  }
+  .layer-tag.active {
+    border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+    color: var(--accent);
+    background: var(--accent-subtle);
+    font-weight: 600;
+  }
+}
+
+/* ── Tab slide transitions ────────────────────────── */
+.slide-left-enter-active,
+.slide-left-leave-active,
+.slide-right-enter-active,
+.slide-right-leave-active {
+  transition: opacity 0.2s ease, transform 0.22s ease;
+}
+.slide-left-enter-from  { opacity: 0; transform: translateX(20px); }
+.slide-left-leave-to    { opacity: 0; transform: translateX(-20px); }
+.slide-right-enter-from { opacity: 0; transform: translateX(-20px); }
+.slide-right-leave-to   { opacity: 0; transform: translateX(20px); }
+
+/* ── Result slide-in ─────────────────────────────── */
+.result-enter-active { transition: opacity 0.28s ease, transform 0.28s ease; }
+.result-enter-from   { opacity: 0; transform: translateY(8px); }
+
+/* ── Scrollbar ────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--accent) 50%, var(--border));
+}
