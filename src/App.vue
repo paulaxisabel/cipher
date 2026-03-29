@@ -1,8 +1,8 @@
 <template>
-  <div class="h-screen overflow-hidden flex flex-col">
+  <div class="overflow-hidden flex flex-col" style="height:100dvh">
 
     <!-- Background orbs -->
-    <div class="fixed inset-0 pointer-events-none z-0 overflow-hidden" aria-hidden="true">
+    <div class="fixed pointer-events-none z-0 overflow-hidden" style="inset:0;height:100dvh" aria-hidden="true">
       <div class="absolute rounded-full" style="width:600px;height:600px;top:-200px;left:-150px;background:var(--orb-a);filter:blur(120px);opacity:var(--orb-opacity);transition:opacity 0.4s"></div>
       <div class="absolute rounded-full" style="width:480px;height:480px;bottom:-120px;right:-100px;background:var(--orb-b);filter:blur(120px);opacity:var(--orb-opacity);transition:opacity 0.4s"></div>
     </div>
