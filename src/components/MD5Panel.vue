@@ -256,63 +256,118 @@ function resetDecode() {
   decCopied.value  = false
 }
 
+// FIX #1 + #3: lowercased comparison so "ERROR CODE 002", "Host not in
+// allowlist", etc. are all caught. Previous check was case-sensitive and
+// missed uppercase error responses from md5decrypt and proxy blocklists.
+function isValid(str) {
+  if (!str || typeof str !== 'string') return false
+  const t = str.trim()
+  if (t.length === 0 || t.length > 200) return false
+  const lower = t.toLowerCase()
+  const badWords = [
+    'not found', 'erreur', 'error', 'code ', 'invalid', 'no result',
+    '<!doctype', '<html', 'undefined', 'null', 'allowlist', 'not in',
+    'bad request', 'forbidden', 'rate limit', 'too many', '404', '403',
+  ]
+  return !badWords.some(b => lower.includes(b))
+}
+
+// FIX #4 + #6: accepts a shared AbortController signal so the winning fetch
+// can immediately cancel all other in-flight requests — avoids stale state
+// updates after the race resolves. Per-request timeout still applies.
+async function tryFetch(url, parse, sharedSignal, ms = 6000) {
+  const ctrl  = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), ms)
+  sharedSignal.addEventListener('abort', () => ctrl.abort(), { once: true })
+  try {
+    const r      = await fetch(url, { signal: ctrl.signal })
+    const result = await parse(r)
+    clearTimeout(timer)
+    return isValid(result) ? result.trim() : ''
+  } catch {
+    clearTimeout(timer)
+    return ''
+  }
+}
+
 async function runDecode() {
   const hash = decInput.value.trim().toLowerCase()
-  if (!hash)             { emit('toast', 'Paste an MD5 hash first.'); return }
-  if (hash.length !== 32){ emit('toast', 'An MD5 hash is always 32 characters.'); return }
+  if (!hash)              { emit('toast', 'Paste an MD5 hash first.'); return }
+  if (hash.length !== 32) { emit('toast', 'An MD5 hash is always 32 characters.'); return }
 
   looking.value    = true
   decChecked.value = false
   decOutput.value  = ''
+  lookingMsg.value = 'Searching databases…'
 
-  const badWords = ['not found','erreur','error','code ','invalid','no result','<!doctype','<html','undefined','null']
-  function isValid(str) {
-    if (!str || typeof str !== 'string') return false
-    const t = str.trim()
-    if (t.length === 0 || t.length > 200) return false
-    return !badWords.some(b => t.toLowerCase().includes(b))
+  const enc = encodeURIComponent
+
+  // FIX #2: updated gromweb parsers — current markup uses
+  // class="string-value"> not the old <a> anchor pattern. Both variants
+  // are checked so it degrades gracefully if the site redesigns again.
+  //
+  // FIX #3: removed md5decrypt.net entirely. Its API requires a real
+  // registered key; the old dummy credentials (email=cipher@tool.com,
+  // code=code1) always return "ERROR CODE 002". There is no free anonymous
+  // endpoint.
+  //
+  // FIX #5: replaced 2-proxy × 2-backend (which was really only 2 real
+  // sources) with 3 genuinely different lookup backends each tried through
+  // both proxies — 6 parallel attempts total.
+  const gromwebParse = async r => {
+    const t = await r.text()
+    // current markup
+    let m = t.match(/class="string-value">([^<]+)</)
+    if (m) return m[1].trim()
+    // legacy markup
+    m = t.match(/reversed into the string <a[^>]*>([^<]+)<\/a>/)
+    return m ? m[1].trim() : ''
   }
 
-  async function tryFetch(url, parse, ms = 8000) {
-    const ctrl  = new AbortController()
-    const timer = setTimeout(() => ctrl.abort(), ms)
-    try {
-      const r      = await fetch(url, { signal: ctrl.signal })
-      const result = await parse(r)
-      clearTimeout(timer)
-      return result
-    } catch { clearTimeout(timer); return '' }
+  const nitrxgenParse = async r => {
+    // plain-text response: the original word, or empty
+    const t = await r.text()
+    return t.trim()
   }
 
-  const attempts = [
-    {
-      label: 'Searching database 1…',
-      url:   `https://corsproxy.io/?url=https%3A%2F%2Fmd5.gromweb.com%2F%3Fmd5%3D${hash}`,
-      parse: async r => { const t = await r.text(); const m = t.match(/reversed into the string <a[^>]*>([^<]+)<\/a>/); return m ? m[1].trim() : '' },
-    },
-    {
-      label: 'Searching database 2…',
-      url:   `https://api.allorigins.win/raw?url=https%3A%2F%2Fmd5.gromweb.com%2F%3Fmd5%3D${hash}`,
-      parse: async r => { const t = await r.text(); const m = t.match(/reversed into the string <a[^>]*>([^<]+)<\/a>/); return m ? m[1].trim() : '' },
-    },
-    {
-      label: 'Searching database 3…',
-      url:   `https://corsproxy.io/?url=https%3A%2F%2Fmd5decrypt.net%2FApi%2Fapi.php%3Fhash%3D${hash}%26hash_type%3Dmd5%26email%3Dcipher%40tool.com%26code%3Dcode1`,
-      parse: r => r.text().then(t => t.trim()),
-    },
-    {
-      label: 'Searching database 4…',
-      url:   `https://api.allorigins.win/raw?url=https%3A%2F%2Fmd5decrypt.net%2FApi%2Fapi.php%3Fhash%3D${hash}%26hash_type%3Dmd5%26email%3Dcipher%40tool.com%26code%3Dcode1`,
-      parse: r => r.text().then(t => t.trim()),
-    },
+  const md5hashingParse = async r => {
+    const t = await r.text()
+    const m = t.match(/class="hash_value"[^>]*>([^<]+)</)
+    return m ? m[1].trim() : ''
+  }
+
+  const sources = [
+    { url: `https://corsproxy.io/?url=${enc('https://md5.gromweb.com/?md5='        + hash)}`, parse: gromwebParse     },
+    { url: `https://api.allorigins.win/raw?url=${enc('https://md5.gromweb.com/?md5='+ hash)}`, parse: gromwebParse     },
+    { url: `https://corsproxy.io/?url=${enc('https://www.nitrxgen.net/md5db/'       + hash)}`, parse: nitrxgenParse    },
+    { url: `https://api.allorigins.win/raw?url=${enc('https://www.nitrxgen.net/md5db/'+ hash)}`,parse: nitrxgenParse   },
+    { url: `https://corsproxy.io/?url=${enc('https://md5hashing.net/hash/md5/'      + hash)}`, parse: md5hashingParse  },
+    { url: `https://api.allorigins.win/raw?url=${enc('https://md5hashing.net/hash/md5/'+ hash)}`,parse: md5hashingParse},
   ]
 
-  for (const a of attempts) {
-    lookingMsg.value = a.label
-    const result = await tryFetch(a.url, a.parse)
-    if (isValid(result)) { decOutput.value = result; break }
-  }
+  // FIX #4 + #6: race all sources in parallel with a shared abort controller.
+  // The moment any source returns a valid result, all other fetches are
+  // cancelled immediately. Worst-case wait is one 6 s timeout, not 4 × 8 s.
+  const raceCtrl = new AbortController()
 
+  const result = await new Promise(resolve => {
+    let remaining = sources.length
+    let resolved  = false
+
+    for (const src of sources) {
+      tryFetch(src.url, src.parse, raceCtrl.signal).then(val => {
+        if (!resolved && val) {
+          resolved = true
+          raceCtrl.abort()   // cancel all remaining in-flight requests
+          resolve(val)
+        }
+        remaining--
+        if (remaining === 0 && !resolved) resolve('')
+      })
+    }
+  })
+
+  decOutput.value  = result
   decChecked.value = true
   looking.value    = false
 }

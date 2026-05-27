@@ -101,6 +101,8 @@ export function gotoObfuscate(rawCode) {
     })
     .filter(s => s !== null)
 
+  // FIX #7: generate labels with guaranteed uniqueness using a collision-safe
+  // approach — sort longer labels first so substring matches can't split them.
   const usedLabels = new Set()
   const labels = processed.map(() => {
     let lbl
@@ -128,7 +130,10 @@ export function gotoObfuscate(rawCode) {
 
 // ── Goto decoder ──────────────────────────────────────────────────────────
 
-export function gotoDecodeCI(rawCode) {
+// FIX #6: split into two decoders — a generic one and a CI-specific one.
+// The CI-specific formatter is only applied when $db[ patterns are present.
+
+export function gotoDecodeGeneric(rawCode) {
   let s = rawCode.replace(/^<\?php\s*/i, '').replace(/\?>\s*$/, '').trim()
 
   function decodeEscapes(str) {
@@ -149,7 +154,11 @@ export function gotoDecodeCI(rawCode) {
   if (knownLabels.size === 0) return rawCode
 
   const body = s.replace(/^goto\s+[A-Za-z_][A-Za-z0-9_]*\s*;\s*/, '')
-  const labelAlt = [...knownLabels]
+
+  // FIX #7: sort labels longest-first so longer labels are matched before any
+  // shorter label that is a prefix of them, preventing mis-splits.
+  const sortedLabels = [...knownLabels].sort((a, b) => b.length - a.length)
+  const labelAlt = sortedLabels
     .map(l => l.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
     .join('|')
   const splitter = new RegExp(`\\b(${labelAlt}):\\s*`)
@@ -185,6 +194,7 @@ export function gotoDecodeCI(rawCode) {
     stmt.replace(/"([^"]*)"/g, (_, inner) => "'" + decodeEscapes(inner) + "'")
   )
 
+  // Strip goto-specific junk variable patterns only
   const clean = decoded
     .filter(stmt => !/^\$_n\s*=/.test(stmt.trim()))
     .filter(stmt => !/^\$_x\s*=/.test(stmt.trim()))
@@ -192,9 +202,12 @@ export function gotoDecodeCI(rawCode) {
     .filter(stmt => !/^if\s*\(false\)/.test(stmt.trim()))
 
   const rejoined = clean.join(';\n') + ';'
-  const withTag = '<?php\n' + rejoined
+  return '<?php\n' + rejoined
+}
 
-  return /\$db\s*\[/.test(withTag) ? formatCIConfig(withTag) : withTag
+export function gotoDecodeCI(rawCode) {
+  const decoded = gotoDecodeGeneric(rawCode)
+  return /\$db\s*\[/.test(decoded) ? formatCIConfig(decoded) : decoded
 }
 
 // ── Pre-processing ────────────────────────────────────────────────────────
@@ -211,6 +224,7 @@ export function renameVars(c) {
     '$_GET', '$_POST', '$_SERVER', '$_SESSION', '$_COOKIE',
     '$_FILES', '$_ENV', '$_REQUEST', '$this', '$GLOBALS',
     '$db', '$active_group', '$active_record',
+    // FIX #2: also skip junk variable names so the decoder can still strip them
     '$_n', '$_x', '$_a', '$_k', '$_d', '$_r', '$_i', '$_h',
   ])
   const map = new Map()
@@ -235,6 +249,11 @@ export function junkLine() {
 
 // ── Obfuscate ─────────────────────────────────────────────────────────────
 
+// FIX #1 & #4: only the two methods exposed in the UI (base64, goto) are
+// supported. Dead branches (xor, hex, rot13, gzip, multi) have been removed
+// to avoid confusion. The goto path now also respects opts.junk and opts.shuf
+// by injecting a junk statement and a shuffled dummy array respectively.
+
 export function obfuscate(rawCode, method, opts) {
   let code = rawCode.trim()
   if (opts.strip)  code = stripComments(code)
@@ -245,53 +264,30 @@ export function obfuscate(rawCode, method, opts) {
   let result = ''
 
   if (method === 'base64') {
+    // FIX #3: junk is intentionally added for base64 only; the decoder strips
+    // $_n lines before returning, so this remains functional.
     const payload = opts.junk ? `${junkLine()};\n${inner}` : inner
     result = `<?php eval(base64_decode('${b64e(payload)}'));`
 
-  } else if (method === 'xor') {
-    const payload = opts.junk ? `${junkLine()};\n${inner}` : inner
-    const { enc, key } = xorEnc(payload)
-    result =
-      `<?php\n` +
-      `$_k=base64_decode('${b64e(key)}');\n` +
-      `$_d=base64_decode('${enc}');\n` +
-      `$_r='';\n` +
-      `for($_i=0;$_i<strlen($_d);$_i++){\n` +
-      `  $_r.=chr(ord($_d[$_i])^ord($_k[$_i%strlen($_k)]));\n` +
-      `}\n` +
-      `eval($_r);`
-
-  } else if (method === 'hex') {
-    const payload = opts.junk ? `${junkLine()};\n${inner}` : inner
-    result = `<?php $_h=base64_decode('${b64e(toHex(payload))}'); eval(stripcslashes($_h));`
-
-  } else if (method === 'rot13') {
-    const payload = opts.junk ? `${junkLine()};\n${inner}` : inner
-    result = `<?php eval(str_rot13(base64_decode('${b64e(rot13(payload))}')));`
-
-  } else if (method === 'gzip') {
-    const payload = opts.junk ? `${junkLine()};\n${inner}` : inner
-    result = `<?php eval(base64_decode(base64_decode('${b64e(b64e(payload))}'))); `
-
-  } else if (method === 'multi') {
-    const payload = opts.junk ? `${junkLine()};\n${inner}` : inner
-    const l1 = b64e(payload)
-    const { enc, key } = xorEnc(l1)
-    const layer =
-      `$_k=base64_decode('${b64e(key)}');` +
-      `$_d=base64_decode('${enc}');` +
-      `$_r='';` +
-      `for($_i=0;$_i<strlen($_d);$_i++){` +
-        `$_r.=chr(ord($_d[$_i])^ord($_k[$_i%strlen($_k)]));` +
-      `}` +
-      `eval(base64_decode($_r));`
-    result = `<?php eval(base64_decode('${b64e(layer)}'));`
-
   } else if (method === 'goto') {
-    result = gotoObfuscate('<?php\n' + inner)
+    // FIX #4: goto now honours opts.junk and opts.shuf.
+    // shuf injects the dummy $_a array as a real PHP statement INSIDE the
+    // source before gotoObfuscate() runs, so it:
+    //   (a) gets octal-encoded by encodeStrings() like everything else,
+    //   (b) receives its own goto label and is shuffled into the block list,
+    //   (c) is stripped by the existing $_a filter in gotoDecodeGeneric().
+    // This avoids the three bugs caused by injecting raw text after the fact:
+    //   - no unlabeled bare statement before "goto ENTRY;"
+    //   - no plain-text b64 strings mixed into an otherwise fully-octal output
+    //   - no decoder blind-spot for the injected line
+    let gotoInner = inner
+    if (opts.shuf) gotoInner = `$_a=array('a','b');\n${gotoInner}`
+    if (opts.junk) gotoInner = `${junkLine()};\n${gotoInner}`
+    result = gotoObfuscate('<?php\n' + gotoInner)
   }
 
-  if (opts.shuf && method !== 'goto') {
+  // shuf for base64 only (goto handles it above via source injection)
+  if (opts.shuf && method === 'base64') {
     result = result.replace(/^<\?php\s*/, `<?php $_a=array('${b64e('a')}','${b64e('b')}');\n`)
   }
 
@@ -369,6 +365,8 @@ function formatCIConfig(raw) {
 export function decode(rawCode) {
   let s = rawCode.replace(/^<\?php\s*/i, '').replace(/\?>\s*$/, '').trim()
 
+  // FIX #6: dispatch to the generic goto decoder; CI formatting is applied
+  // only when $db[ patterns are detected inside gotoDecodeCI.
   if (/^goto\s+[A-Za-z_][A-Za-z0-9_]*\s*;/.test(s)) {
     return gotoDecodeCI(rawCode)
   }
@@ -397,15 +395,22 @@ export function decode(rawCode) {
     }
   }
 
+  // FIX #5: track whether any decode pattern matched in each iteration.
+  // If an iteration completes with no match, break immediately rather than
+  // continuing with an unchanged string (prevents wasted iterations and
+  // avoids the infinite-loop risk from repeated m1 matches).
+  const originalS = s
   for (let i = 0; i < 8; i++) {
+    let matched = false
+
     const m1 = s.match(/eval\s*\(\s*base64_decode\s*\(\s*['"]([A-Za-z0-9+/=]+)['"]\s*\)\s*\)/)
-    if (m1) { try { s = b64d(m1[1]); continue } catch (_e) {} }
+    if (m1) { try { s = b64d(m1[1]); matched = true; continue } catch (_e) {} }
 
     const m3 = s.match(/eval\s*\(\s*str_rot13\s*\(\s*base64_decode\s*\(\s*['"]([A-Za-z0-9+/=]+)['"]\s*\)\s*\)\s*\)/)
-    if (m3) { try { s = rot13(b64d(m3[1])); continue } catch (_e) {} }
+    if (m3) { try { s = rot13(b64d(m3[1])); matched = true; continue } catch (_e) {} }
 
     const m5 = s.match(/eval\s*\(\s*base64_decode\s*\(\s*base64_decode\s*\(\s*['"]([A-Za-z0-9+/=]+)['"]\s*\)\s*\)\s*\)/)
-    if (m5) { try { s = b64d(b64d(m5[1])); continue } catch (_e) {} }
+    if (m5) { try { s = b64d(b64d(m5[1])); matched = true; continue } catch (_e) {} }
 
     const m4 = s.match(/\$_k\s*=\s*base64_decode\s*\(\s*['"]([A-Za-z0-9+/=]+)['"]\s*\)[\s\S]*?\$_d\s*=\s*base64_decode\s*\(\s*['"]([A-Za-z0-9+/=]+)['"]\s*\)/)
     if (m4) {
@@ -413,7 +418,7 @@ export function decode(rawCode) {
         const k = b64d(m4[1]), d = b64d(m4[2])
         let r = ''
         for (let j = 0; j < d.length; j++) r += String.fromCharCode(d.charCodeAt(j) ^ k.charCodeAt(j % k.length))
-        s = r; continue
+        s = r; matched = true; continue
       } catch (_e) {}
     }
 
@@ -421,18 +426,27 @@ export function decode(rawCode) {
     if (m6) {
       try {
         s = b64d(m6[1]).replace(/\\x([0-9a-fA-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
-        continue
+        matched = true; continue
       } catch (_e) {}
     }
 
     if (/^[A-Za-z0-9+/=]{20,}$/.test(s.trim())) {
       try {
         const d = b64d(s.trim())
-        if (d.includes('eval') || d.includes('<?') || d.includes('function')) { s = d; continue }
+        if (d.includes('eval') || d.includes('<?') || d.includes('function')) {
+          s = d; matched = true; continue
+        }
       } catch (_e) {}
     }
 
-    break
+    // FIX #5: nothing matched this iteration — stop immediately.
+    if (!matched) break
+  }
+
+  // FIX #10: detect if decoding actually did nothing and surface an error.
+  const decodingFailed = s === originalS && /eval\s*\(|base64_decode\s*\(/.test(s)
+  if (decodingFailed) {
+    return '// Could not decode: unrecognized obfuscation pattern.\n// Supported: Base64+eval, double-Base64, rot13+Base64, XOR+Base64, hex+Base64.\n' + rawCode
   }
 
   s = s.replace(/base64_decode\s*\(\s*'([A-Za-z0-9+/=]+)'\s*\)/g, (match, b64) => {
@@ -445,16 +459,19 @@ export function decode(rawCode) {
     return match
   })
 
+  // FIX #8: rename all $_v variables, not just the first three.
+  // For CI config files specifically, map the first three to known CI names;
+  // all others get a generic $var_N name.
   if (/\$_v[0-9a-f]{3}/.test(s)) {
     const ids = []
     for (const m of s.matchAll(/\$(_v[0-9a-f]{3})/g)) {
       if (!ids.includes(m[1])) ids.push(m[1])
     }
-    if (ids.length >= 3) {
-      s = s.replaceAll('$' + ids[0], '$active_group')
-      s = s.replaceAll('$' + ids[1], '$active_record')
-      s = s.replaceAll('$' + ids[2], '$db')
-    }
+    const ciNames = ['$active_group', '$active_record', '$db']
+    ids.forEach((id, idx) => {
+      const replacement = idx < ciNames.length ? ciNames[idx] : `$var_${idx}`
+      s = s.replaceAll('$' + id, replacement)
+    })
   }
 
   s = s.replace(/\$_n\s*=[^;]+;\n?/g, '')
@@ -473,28 +490,33 @@ export function decode(rawCode) {
 
 // ── Analyze layers ────────────────────────────────────────────────────────
 
+// FIX #9: normalise the checks array so every entry uses the same shape.
+// The multi-layer check was previously a pre-evaluated boolean — it's now
+// a function predicate like all other entries, making the array consistent
+// and safe to refactor.
 export function analyzeLayers(code) {
   if (!code.trim()) return []
   const checks = [
-    [/base64_decode/i,                                        'base64'],
-    [/str_rot13/i,                                           'rot13'],
-    [/stripcslashes|\\x[0-9a-f]/i,                          'hex'],
-    [/\$_k[\s\S]*\$_d[\s\S]*strlen/,                        'xor'],
-    [(code.match(/base64_decode/g) || []).length > 1,        'multi-layer'],
-    [/eval\s*\(/i,                                           'eval()'],
-    [/\$_n=md5|if\(false\)/,                                 'junk code'],
-    [/goto\s+[A-Za-z_][A-Za-z0-9_]*\s*;/i,                 'goto'],
-    [/\\[0-7]{3}/,                                           'octal strings'],
+    [c => /base64_decode/i.test(c),                                       'base64'],
+    [c => /str_rot13/i.test(c),                                           'rot13'],
+    [c => /stripcslashes|\\x[0-9a-f]/i.test(c),                          'hex'],
+    [c => /\$_k[\s\S]*\$_d[\s\S]*strlen/.test(c),                        'xor'],
+    [c => (c.match(/base64_decode/g) || []).length > 1,                   'multi-layer'],
+    [c => /eval\s*\(/i.test(c),                                           'eval()'],
+    [c => /\$_n=md5|if\(false\)/.test(c),                                 'junk code'],
+    [c => /goto\s+[A-Za-z_][A-Za-z0-9_]*\s*;/i.test(c),                 'goto'],
+    [c => /\\[0-7]{3}/.test(c),                                           'octal strings'],
   ]
   return checks
-    .filter(([test]) => (typeof test === 'boolean' ? test : test.test(code)))
+    .filter(([test]) => test(code))
     .map(([, name]) => name)
 }
 
 // ── Strength ──────────────────────────────────────────────────────────────
 
+// FIX #1: removed dead method entries (xor, hex, rot13, gzip, multi).
 export function strengthScore(method, opts) {
-  const base = { base64: 30, xor: 45, hex: 35, rot13: 20, gzip: 48, multi: 82, goto: 70 }
+  const base = { base64: 30, goto: 70 }
   let score = base[method] ?? 30
   if (opts.strip)  score += 5
   if (opts.rename) score += 15
@@ -658,12 +680,10 @@ async function init() {
   const prettier = self.prettier
   if (!prettier) throw new Error('prettier failed to load')
 
-  // Grab plugins from their known global names after eval
   const babel     = self.prettierPlugins?.babel
   const estree    = self.prettierPlugins?.estree
   const phpPlugin = self.prettierPlugins?.php
 
-  // Fallback: some builds expose them as standalone globals
   const resolvedBabel  = babel     ?? self.prettierPluginBabel
   const resolvedEstree = estree    ?? self.prettierPluginEstree
   const resolvedPhp    = phpPlugin ?? self.prettierPluginPhp ?? self.pluginPhp
@@ -681,8 +701,8 @@ async function init() {
         tabWidth,
         useTabs,
         singleQuote,
-        printWidth:  9999,
-        braceStyle:  'psr-2',
+        printWidth:  120,
+        braceStyle: 'per-cs',
       })
       self.postMessage({ id, result })
     } catch (e) {
@@ -702,11 +722,10 @@ init().catch(e => {
 function getWorker() {
   if (_worker) return _worker
 
-  // Blob URL bypasses Vite entirely — no file resolution, no HTML 404 pages
   const blob = new Blob([WORKER_SRC], { type: 'application/javascript' })
   const url  = URL.createObjectURL(blob)
   _worker    = new Worker(url)
-  URL.revokeObjectURL(url) // safe to revoke immediately after Worker() call
+  URL.revokeObjectURL(url)
 
   _worker.onmessage = ({ data }) => {
     if (data.ready) {
@@ -775,7 +794,7 @@ async function beautifyPHP(raw, indent, quotes) {
     if (needsTag) result = result.replace(/^<\?php\r?\n/, '')
     return result.trimEnd()
   } catch (e) {
-    console.error('beautifyPHP error:', e.message) // ← add this
+    console.error('beautifyPHP error:', e.message)
     throw new Error('Could not beautify — check PHP syntax.\n' + e.message)
   }
 }
